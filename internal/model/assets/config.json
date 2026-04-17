@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "model_version": "v0.9",
+  "trained_feature_config": {
+    "n_features_char": 131072,
+    "n_features_word": 131072,
+    "char_ngram_range": [
+      3,
+      5
+    ],
+    "word_ngram_range": [
+      1,
+      2
+    ],
+    "hash_seed": 0,
+    "structural_names": [
+      "len_chars",
+      "len_tokens",
+      "url_count",
+      "unique_domain_count",
+      "mention_count",
+      "hashtag_count",
+      "tag_p_count",
+      "tag_e_count",
+      "tag_t_count",
+      "tag_other_count",
+      "emoji_count",
+      "emoji_ratio",
+      "zero_width_count",
+      "caps_ratio",
+      "digit_ratio",
+      "punct_ratio",
+      "dup_body_bucket"
+    ],
+    "group_feature_names": [
+      "group_size",
+      "time_span_hours",
+      "n_unique_bodies",
+      "len_chars_std",
+      "same_first_token_ratio",
+      "mean_pairwise_jaccard"
+    ],
+    "group_sizes": [
+      1,
+      2,
+      3,
+      5,
+      10
+    ]
+  },
+  "n_features_char": 131072,
+  "n_features_word": 131072,
+  "char_ngram_range": [
+    3,
+    5
+  ],
+  "word_ngram_range": [
+    1,
+    2
+  ],
+  "word_analyzer": "word",
+  "char_analyzer": "char_wb",
+  "structural_names": [
+    "len_chars",
+    "len_tokens",
+    "url_count",
+    "unique_domain_count",
+    "mention_count",
+    "hashtag_count",
+    "tag_p_count",
+    "tag_e_count",
+    "tag_t_count",
+    "tag_other_count",
+    "emoji_count",
+    "emoji_ratio",
+    "zero_width_count",
+    "caps_ratio",
+    "digit_ratio",
+    "punct_ratio",
+    "dup_body_bucket"
+  ],
+  "group_feature_names": [
+    "group_size",
+    "time_span_hours",
+    "n_unique_bodies",
+    "len_chars_std",
+    "same_first_token_ratio",
+    "mean_pairwise_jaccard"
+  ],
+  "group_sizes_trained": [
+    1,
+    2,
+    3,
+    5,
+    10
+  ],
+  "total_features": 262167,
+  "hashing": {
+    "algorithm": "MurmurHash3 x86 32-bit (seed=0)",
+    "sklearn_reference": "sklearn.feature_extraction._hashing_fast",
+    "alternate_sign": true,
+    "note": "See hash_fixtures.jsonl for bit-exact token-level examples."
+  },
+  "invisible_chars": [
+    "᠎",
+    "​",
+    "‌",
+    "‍",
+    "‎",
+    "‏",
+    "‪",
+    "‫",
+    "‬",
+    "‭",
+    "‮",
+    "⁠",
+    "⁡",
+    "⁢",
+    "⁣",
+    "⁤",
+    "⁦",
+    "⁧",
+    "⁨",
+    "⁩",
+    "﻿"
+  ],
+  "url_normalization": "strip to http://<host lowercase>",
+  "unicode_normalization": "NFKC",
+  "casefold": true
+}

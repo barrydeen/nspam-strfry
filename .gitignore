@@ -1,0 +1,11 @@
+# Built binaries
+/nspam-strfry
+/nspam-admin
+
+# Local state dbs
+*.db
+
+# Editor / tool noise
+.DS_Store
+.idea/
+.vscode/
