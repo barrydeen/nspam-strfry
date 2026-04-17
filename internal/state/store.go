@@ -1,14 +1,14 @@
-// Package state persists per-pubkey plugin state in a bbolt file.
+// Package state persists per-pubkey plugin state in a SQLite database.
 package state
 
 import (
-	"encoding/hex"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/barrydeen/nspam-strfry/internal/strfry"
-	bolt "go.etcd.io/bbolt"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type State uint8
@@ -49,47 +49,48 @@ func NewStoredNote(ev *strfry.Event) StoredNote {
 	}
 }
 
-// Author is the per-pubkey record stored in the authors bucket.
+// Author is the per-pubkey record stored in the authors table.
 type Author struct {
 	State     State        `json:"state"`
 	UpdatedAt int64        `json:"updated_at"` // unix seconds
 	Notes     []StoredNote `json:"notes,omitempty"`
 }
 
-var authorsBucket = []byte("authors")
-
-// Store wraps a bbolt database.
+// Store wraps a SQLite database.
 type Store struct {
-	db *bolt.DB
+	db *sql.DB
 }
 
-// Open opens (or creates) the bbolt database at path.
-func Open(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 5 * time.Second})
+func openDB(path string, params string) (*Store, error) {
+	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000"
+	if params != "" {
+		dsn += "&" + params
+	}
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(authorsBucket)
-		return err
-	}); err != nil {
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS authors (
+		pubkey TEXT PRIMARY KEY,
+		state  INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL DEFAULT 0,
+		notes  TEXT NOT NULL DEFAULT '[]'
+	)`); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil
 }
 
-// OpenReadOnly opens the bbolt database in read-only mode, using a shared
-// lock so it can coexist with a writer (e.g. the running plugin process).
+// Open opens (or creates) the SQLite database at path with WAL mode.
+func Open(path string) (*Store, error) {
+	return openDB(path, "")
+}
+
+// OpenReadOnly opens the SQLite database in read-only mode.
 func OpenReadOnly(path string) (*Store, error) {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{
-		Timeout:  5 * time.Second,
-		ReadOnly: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &Store{db: db}, nil
+	return openDB(path, "mode=ro")
 }
 
 func (s *Store) Close() error {
@@ -99,66 +100,68 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// pubkeyKey decodes the hex pubkey to 32 raw bytes. An invalid input returns
-// nil so callers can short-circuit to a safe default (reject).
-func pubkeyKey(hexPub string) []byte {
+// validatePubkey checks that a hex pubkey is 64 hex characters.
+func validatePubkey(hexPub string) error {
 	if len(hexPub) != 64 {
-		return nil
+		return fmt.Errorf("invalid pubkey %q", hexPub)
 	}
-	b, err := hex.DecodeString(hexPub)
-	if err != nil {
-		return nil
+	for _, c := range hexPub {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return fmt.Errorf("invalid pubkey %q", hexPub)
+		}
 	}
-	return b
+	return nil
 }
 
 // Get returns the stored author record. When the pubkey is unknown it
 // returns a zero-value Author (state=Pending, no notes) and found=false.
 func (s *Store) Get(hexPub string) (Author, bool, error) {
-	key := pubkeyKey(hexPub)
-	if key == nil {
-		return Author{}, false, fmt.Errorf("invalid pubkey %q", hexPub)
+	if err := validatePubkey(hexPub); err != nil {
+		return Author{}, false, err
 	}
 	var a Author
-	found := false
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(authorsBucket)
-		v := b.Get(key)
-		if v == nil {
-			return nil
-		}
-		found = true
-		return json.Unmarshal(v, &a)
-	})
-	return a, found, err
+	var notesJSON string
+	err := s.db.QueryRow(
+		`SELECT state, updated_at, notes FROM authors WHERE pubkey = ?`, hexPub,
+	).Scan(&a.State, &a.UpdatedAt, &notesJSON)
+	if err == sql.ErrNoRows {
+		return Author{}, false, nil
+	}
+	if err != nil {
+		return Author{}, false, err
+	}
+	if err := json.Unmarshal([]byte(notesJSON), &a.Notes); err != nil {
+		return Author{}, false, fmt.Errorf("unmarshal notes: %w", err)
+	}
+	return a, true, nil
 }
 
 // Put writes the full author record for a pubkey. Used by policy after it
 // decides on the next state, and by the admin CLI.
 func (s *Store) Put(hexPub string, a Author) error {
-	key := pubkeyKey(hexPub)
-	if key == nil {
-		return fmt.Errorf("invalid pubkey %q", hexPub)
+	if err := validatePubkey(hexPub); err != nil {
+		return err
 	}
 	a.UpdatedAt = time.Now().Unix()
-	val, err := json.Marshal(a)
+	notesJSON, err := json.Marshal(a.Notes)
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(authorsBucket).Put(key, val)
-	})
+	_, err = s.db.Exec(
+		`INSERT INTO authors (pubkey, state, updated_at, notes) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(pubkey) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at, notes=excluded.notes`,
+		hexPub, a.State, a.UpdatedAt, string(notesJSON),
+	)
+	return err
 }
 
 // Delete removes the pubkey from the store.
 func (s *Store) Delete(hexPub string) error {
-	key := pubkeyKey(hexPub)
-	if key == nil {
-		return fmt.Errorf("invalid pubkey %q", hexPub)
+	if err := validatePubkey(hexPub); err != nil {
+		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(authorsBucket).Delete(key)
-	})
+	_, err := s.db.Exec(`DELETE FROM authors WHERE pubkey = ?`, hexPub)
+	return err
 }
 
 // SetWhitelist marks the pubkey whitelisted and clears any pending notes.
@@ -177,16 +180,25 @@ type ListRecord struct {
 	Author Author
 }
 
-// ForEach invokes fn for every stored author. Pubkeys are re-encoded to hex.
+// ForEach invokes fn for every stored author.
 func (s *Store) ForEach(fn func(ListRecord) error) error {
-	return s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(authorsBucket)
-		return b.ForEach(func(k, v []byte) error {
-			var a Author
-			if err := json.Unmarshal(v, &a); err != nil {
-				return err
-			}
-			return fn(ListRecord{Pubkey: hex.EncodeToString(k), Author: a})
-		})
-	})
+	rows, err := s.db.Query(`SELECT pubkey, state, updated_at, notes FROM authors`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rec ListRecord
+		var notesJSON string
+		if err := rows.Scan(&rec.Pubkey, &rec.Author.State, &rec.Author.UpdatedAt, &notesJSON); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(notesJSON), &rec.Author.Notes); err != nil {
+			return fmt.Errorf("unmarshal notes for %s: %w", rec.Pubkey, err)
+		}
+		if err := fn(rec); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
