@@ -79,6 +79,19 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// OpenReadOnly opens the bbolt database in read-only mode, using a shared
+// lock so it can coexist with a writer (e.g. the running plugin process).
+func OpenReadOnly(path string) (*Store, error) {
+	db, err := bolt.Open(path, 0o600, &bolt.Options{
+		Timeout:  5 * time.Second,
+		ReadOnly: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {
 		return nil

@@ -37,7 +37,17 @@ func main() {
 		os.Exit(2)
 	}
 
-	st, err := state.Open(*dbPath)
+	// Read-only commands use a shared lock so they work while the plugin is running.
+	// Write commands (set, clear) need an exclusive lock.
+	needsWrite := args[0] == "set" || args[0] == "clear"
+
+	var st *state.Store
+	var err error
+	if needsWrite {
+		st, err = state.Open(*dbPath)
+	} else {
+		st, err = state.OpenReadOnly(*dbPath)
+	}
 	if err != nil {
 		fatalf("open %s: %v", *dbPath, err)
 	}
