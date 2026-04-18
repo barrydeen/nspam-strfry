@@ -25,8 +25,9 @@ func main() {
 		dbPath        = flag.String("db", "/var/lib/nspam-strfry/state.db", "path to bbolt state file")
 		botThreshold  = flag.Float64("threshold-bot", policy.DefaultBotThreshold, "bot_prob ≥ this → blacklist")
 		realThreshold = flag.Float64("threshold-real", policy.DefaultRealThreshold, "bot_prob ≤ this → whitelist")
-		cap_          = flag.Int("cap", policy.DefaultCap, "max pending notes per pubkey before forced decision")
-		verbose       = flag.Bool("v", false, "log every decision (otherwise only state transitions)")
+		cap_              = flag.Int("cap", policy.DefaultCap, "max pending notes per pubkey before forced decision")
+		minNotesBlacklist = flag.Int("min-notes-blacklist", policy.DefaultMinNotesBlacklist, "minimum notes before blacklisting")
+		verbose           = flag.Bool("v", false, "log every decision (otherwise only state transitions)")
 	)
 	flag.Parse()
 
@@ -65,9 +66,10 @@ func main() {
 	_ = verbose // wired through below — we currently always log transitions.
 
 	p := policy.New(policy.Config{
-		BotThreshold:  *botThreshold,
-		RealThreshold: *realThreshold,
-		Cap:           *cap_,
+		BotThreshold:      *botThreshold,
+		RealThreshold:     *realThreshold,
+		Cap:               *cap_,
+		MinNotesBlacklist: *minNotesBlacklist,
 	}, st, m, logFn)
 
 	if err := run(ctx, os.Stdin, os.Stdout, p); err != nil && err != io.EOF {

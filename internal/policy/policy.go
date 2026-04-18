@@ -10,16 +10,18 @@ import (
 
 // Defaults match the user's decision rules.
 const (
-	DefaultBotThreshold  = 0.90 // bot_prob ≥ -> blacklist
-	DefaultRealThreshold = 0.25 // bot_prob ≤ -> whitelist (i.e. real confidence ≥ 0.75)
-	DefaultCap           = 10   // max pending notes before forced decision
+	DefaultBotThreshold       = 0.90 // bot_prob ≥ -> blacklist
+	DefaultRealThreshold      = 0.25 // bot_prob ≤ -> whitelist (i.e. real confidence ≥ 0.75)
+	DefaultCap                = 10   // max pending notes before forced decision
+	DefaultMinNotesBlacklist  = 3    // require at least this many notes before blacklisting
 )
 
 // Config lets operators tune thresholds via CLI flags.
 type Config struct {
-	BotThreshold  float64
-	RealThreshold float64
-	Cap           int
+	BotThreshold      float64
+	RealThreshold     float64
+	Cap               int
+	MinNotesBlacklist int
 }
 
 func (c Config) withDefaults() Config {
@@ -31,6 +33,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Cap == 0 {
 		c.Cap = DefaultCap
+	}
+	if c.MinNotesBlacklist == 0 {
+		c.MinNotesBlacklist = DefaultMinNotesBlacklist
 	}
 	return c
 }
@@ -126,7 +131,7 @@ func (p *Policy) Decide(msg *strfry.Message) strfry.Response {
 	prob := p.scorer.Score(bundle)
 
 	switch {
-	case prob >= p.cfg.BotThreshold:
+	case prob >= p.cfg.BotThreshold && len(bundle) >= p.cfg.MinNotesBlacklist:
 		if err := p.store.SetBlacklist(ev.Pubkey); err != nil {
 			p.logFn("SetBlacklist(%s): %v", ev.Pubkey, err)
 		}
